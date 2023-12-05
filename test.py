@@ -1,5 +1,6 @@
 import cv2
 import mediapipe as mp
+import time
 
 
 def get_finger_landmarks(hand_landmarks, finger_indices):
@@ -19,10 +20,19 @@ mp_drawing = mp.solutions.drawing_utils
 # 웹캠 시작
 cap = cv2.VideoCapture(0)
 
+# 이전 프레임 시간
+prev_frame_time = 0
+
+# 지금 프레임 시간
+new_frame_time = 0
+
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
         continue
+
+    # 현재 시간 업데이트
+    new_frame_time = time.time()
 
     # 처리속도 향상을 위한 리사이즈
     frame = cv2.resize(frame, dsize=(0, 0), fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
@@ -79,6 +89,13 @@ while cap.isOpened():
             else:
                 print("none")
 
+
+    # FPS 계산
+    fps = 1 / (new_frame_time - prev_frame_time)
+    prev_frame_time = new_frame_time
+
+    # FPS 표시
+    cv2.putText(frame, f'FPS: {int(fps)}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 3, cv2.LINE_AA)
 
     # 결과 표시
     cv2.imshow('Hands', frame)
