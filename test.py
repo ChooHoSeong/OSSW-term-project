@@ -2,189 +2,144 @@ import cv2
 import mediapipe as mp
 import time
 import mouse
+from screeninfo import get_monitors
 
+# 사용되는 컴의 해상도 가져오기
+myMonitor = get_monitors()[0]
 
-def get_finger_landmarks(hand_landmarks, finger_indices):
-    result = [hand_landmarks.landmark[index] for index in finger_indices]
-    # print(result)
-    return result
+#해상도 매핑 합수
+def scale(x, input_range, output_range):
+    D, A = input_range
+    B, C = output_range
+    y = (x - A) * (B - C) / (D - A) + C
+    return y
 
-def calculate_distance(point1, point2):
-    return ((point1.x - point2.x) ** 2 + (point1.y - point2.y) ** 2) ** 0.5
+# 마지막 손바닥 위치 초기화
+last_hand_position = (0, 0)
+# 감도 설정 (이 값이 클수록 마우스 움직임이 더 둔감해집니다)
+sensitivity = 4
 
-
-# MediaPipe 손 모듈 초기화
+# Mediapipe 손 모듈 초기화
 mp_hands = mp.solutions.hands
-hands = mp_hands.Hands()
-mp_drawing = mp.solutions.drawing_utils
+hands = mp_hands.Hands(max_num_hands=1)  # 한 손만 인식하도록 설정
 
-# 웹캠 시작
+# 웹캠 초기화
 cap = cv2.VideoCapture(0)
-
-# 이전 프레임 시간
+#cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+#cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+# FPS 계산을 위한 초기 시간
 prev_frame_time = 0
-
-# 지금 프레임 시간
 new_frame_time = 0
 
-#더블클릭 체크용 변수
-left = 0
-firtime = 0
-sectime = 0
-clicked = False
 
-#클릭 유지 체크용 변수
-longcheck = 0
+
+# 거리 계산 함수
+def calculate_distance(p1, p2):
+    return ((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2) ** 0.5
+
+# 삼각형의 넓이 계산 함수
+def calculate_triangle_area(p0, p5, p17):
+    # 헤론의 공식 사용
+    a = calculate_distance(p0, p5)
+    b = calculate_distance(p5, p17)
+    c = calculate_distance(p17, p0)
+    s = (a + b + c) / 2
+    return (s * (s - a) * (s - b) * (s - c)) ** 0.5
 
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
         continue
 
-    # 현재 시간 업데이트
+    # 프레임 크기 조정 및 좌우 반전
+    frame = cv2.resize(frame, None, fx=0.5, fy=0.5)
+    frame = cv2.flip(frame, 1)
+
+    # 새로운 프레임의 시간
     new_frame_time = time.time()
 
-    # 처리속도 향상을 위한 리사이즈
-    frame = cv2.resize(frame, dsize=(0, 0), fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
+    # BGR에서 RGB로 변환
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
+    # 손 감지
+    results = hands.process(frame)
 
-    # BGR 이미지를 RGB로 변환
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    # 원래 BGR로 다시 변환
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-    # MediaPipe로 손 인식
-    results = hands.process(frame_rgb)
-
+    # 감지된 손이 있으면 랜드마크 랜더링 및 마우스 커서 제어
     if results.multi_hand_landmarks:
-        # 손 랜드마크 그리기
         for hand_landmarks in results.multi_hand_landmarks:
-            mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-            # 손가락 랜드마크 인덱스
-            THUMB_LANDMARKS = [mp_hands.HandLandmark.THUMB_TIP,
-                               mp_hands.HandLandmark.THUMB_IP,
-                               mp_hands.HandLandmark.THUMB_MCP,
-                               mp_hands.HandLandmark.THUMB_CMC]
-            INDEX_FINGER_LANDMARKS = [mp_hands.HandLandmark.INDEX_FINGER_TIP,
-                                      mp_hands.HandLandmark.INDEX_FINGER_DIP,
-                                      mp_hands.HandLandmark.INDEX_FINGER_PIP,
-                                      mp_hands.HandLandmark.INDEX_FINGER_MCP]
-            MIDDLE_FINGER_LANDMARKS = [mp_hands.HandLandmark.MIDDLE_FINGER_TIP,
-                                       mp_hands.HandLandmark.MIDDLE_FINGER_DIP,
-                                       mp_hands.HandLandmark.MIDDLE_FINGER_PIP,
-                                       mp_hands.HandLandmark.MIDDLE_FINGER_MCP]
-            RING_FINGER_LANDMARKS = [mp_hands.HandLandmark.RING_FINGER_TIP,
-                                     mp_hands.HandLandmark.RING_FINGER_DIP,
-                                     mp_hands.HandLandmark.RING_FINGER_PIP,
-                                     mp_hands.HandLandmark.RING_FINGER_MCP]
-            PINKY_FINGER_LANDMARKS = [mp_hands.HandLandmark.PINKY_TIP,
-                                      mp_hands.HandLandmark.PINKY_DIP,
-                                      mp_hands.HandLandmark.PINKY_PIP,
-                                      mp_hands.HandLandmark.PINKY_MCP]
-            WRIST_LANDMARK = [mp_hands.HandLandmark.WRIST]
-            
+            # 랜드마크 위치 저장
+            highlight_landmarks = [0, 4, 5, 8, 12, 16, 17, 20]
+            landmark_positions = {}
+            for id, lm in enumerate(hand_landmarks.landmark):
+                h, w, c = frame.shape
+                cx, cy = int(lm.x * w), int(lm.y * h)
+                landmark_positions[id] = (cx, cy)
+                if id in highlight_landmarks:
+                    cv2.circle(frame, (cx, cy), 5, (255, 0, 255), cv2.FILLED)
 
-            # 엄지손가락 랜드마크
-            thumb_landmarks = get_finger_landmarks(hand_landmarks, THUMB_LANDMARKS)
-            # 검지손가락 랜드마크
-            index_finger_landmarks = get_finger_landmarks(hand_landmarks, INDEX_FINGER_LANDMARKS)
-            # 중지손가락 랜드마크
-            middle_finger_landmarks = get_finger_landmarks(hand_landmarks, MIDDLE_FINGER_LANDMARKS)
-            # 약지손가락 랜드마크
-            ring_finger_landmarks = get_finger_landmarks(hand_landmarks, RING_FINGER_LANDMARKS)
-            # 새끼손가락 랜드마크
-            pinky_finger_landmarks = get_finger_landmarks(hand_landmarks, PINKY_FINGER_LANDMARKS)
-            #손목 랜드마크
-            wrist_landmark = get_finger_landmarks(hand_landmarks, WRIST_LANDMARK)[0]
+            # 손바닥 중심(삼각형 중점) 계산
+            cx = (landmark_positions[0][0] + landmark_positions[5][0] + landmark_positions[17][0]) // 3
+            cy = (landmark_positions[0][1] + landmark_positions[5][1] + landmark_positions[17][1]) // 3
+            cv2.circle(frame, (cx, cy), 5, (255, 0, 255), cv2.FILLED)
+            # 삼각형 그리기
+            cv2.line(frame, landmark_positions[0], landmark_positions[5], (255, 0, 0), 2)
+            cv2.line(frame, landmark_positions[5], landmark_positions[17], (255, 0, 0), 2)
+            cv2.line(frame, landmark_positions[17], landmark_positions[0], (255, 0, 0), 2)
 
+            # 인덱스 팁과 엄지 팁, 중지 팁과 엄지 팁 사이 선 그리기
+            cv2.line(frame, landmark_positions[8], landmark_positions[4], (0, 255, 0), 2)
+            cv2.line(frame, landmark_positions[12], landmark_positions[4], (0, 255, 0), 2)
 
-            #거리
-            idx_thb = calculate_distance(thumb_landmarks[0], index_finger_landmarks[0])             #검지 1번 엄지 1번
-            mid_thb = calculate_distance(thumb_landmarks[0], middle_finger_landmarks[0])            #중지 1번 엄지 1번
-            thb_grip = calculate_distance(thumb_landmarks[0],middle_finger_landmarks[3])
-            fold_pinky = calculate_distance(pinky_finger_landmarks[2],pinky_finger_landmarks[3])    #새끼 3번, 4번마디
-            
+            # 손바닥 넓이 계산
+            hand_area = calculate_triangle_area(landmark_positions[0], landmark_positions[5], landmark_positions[17])
 
-            grip_idx = calculate_distance(index_finger_landmarks[1],index_finger_landmarks[3])
+            # 손바닥 넓이가 충분히 클 때만 마우스 커서 이동 및 클릭 이벤트 생성
+            if hand_area > 3000:  # 넓이 임계값
+                # 화면 해상도에 맞게 손q 위치 조정
+                # screen_w, screen_h = mouse.get_position()
+                # x = int(screen_w * (cx / w))
+                # y = int(screen_h * (cy / h))
+                print(cx,cy,myMonitor.width,myMonitor.height)
+                cx = scale(cx, (100,850),(0,myMonitor.width))
+                cy = scale(cy, (100,450),(0,myMonitor.height))
+                # 손바닥의 중심 위치가 충분히 변했는지 확인
+                if abs(cx - last_hand_position[0]) > sensitivity or abs(cy - last_hand_position[1]) > sensitivity:
+                    mouse.move(cx, cy, absolute=True)
+                    last_hand_position = (cx, cy)
 
+                # 인덱스 팁과 엄지 팁 사이 거리
+                distance_index_thumb = calculate_distance(landmark_positions[8], landmark_positions[4])
 
-            #print(thb_grip) 0.05
+                # 중지 팁과 엄지 팁 사이 거리
+                distance_middle_thumb = calculate_distance(landmark_positions[12], landmark_positions[4])
 
-            if grip_idx < 0.1 and fold_pinky < 0.03:
-                time.sleep(0.1)
-                idx_thb = 1
+                # 클릭 판단
+                if distance_index_thumb < 30:  # 인덱스 팁과 엄지 팁 사이 거리 임계값
+                    mouse.click()
+                    print("L-clicked")
+                elif distance_middle_thumb < 30:  # 중지 팁과 엄지 팁 사이 거리 임계값
+                    mouse.click(button='right')
+                    print("R-clicked")
 
-                if thb_grip < 0.05:
-                    print("Scroll Down")
-
-                elif thb_grip > 0.1:
-                    print("Scroll Up")
-
-            elif idx_thb < 0.1:
-                time.sleep(0.05)
-
-                if mid_thb < 0.1:
-                    print("Right Click")
-                    mouse.right_click()
-                    time.sleep(0.2)
-
-                else:
-                    if clicked:
-                        longcheck += 1
-                        if longcheck >= 5:
-                            print("Long Left Click")
-
-
-
-
-                    if not clicked:  
-                        clicked = True
-                        current_time = time.perf_counter()
-                        if left == 0:
-                            firtime = current_time
-                            left += 1
-                            print("Left Click")
-                            mouse.click()
-                        elif left == 1:
-                            if current_time - firtime < 0.5:
-                                print("Double Click")
-                                mouse.double_click()
-                                left = 0  
-                            else:
-                                firtime = current_time  
-                                print("Left Click")
             else:
-                longcheck = 0
-                clicked = False  
-                print("none")
+                cv2.putText(frame, "error - shape of hand is strange", (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-
-            #________________________________________________________________
-            wristx = 3412 - wrist_landmark.x * 3412
-            wristy = wrist_landmark.y * 3099 - 1599
-            wristx = wristx / 2
-            wristy = wristy
-
-            mouse.move(wristx, wristy)
-
-
-             
-                
-
-    # FPS 계산
+    # FPS 계산 및 표시
     fps = 1 / (new_frame_time - prev_frame_time)
     prev_frame_time = new_frame_time
-
-    # FPS 표시
-    cv2.putText(frame, f'FPS: {int(fps)}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 0), 3, cv2.LINE_AA)
+    fps_display = f"FPS: {int(fps)}"
+    cv2.putText(frame, fps_display, (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
 
     # 결과 표시
-    cv2.imshow('Hands', frame)
+    cv2.imshow('Hand Tracking', frame)
 
+    # 'q' 키를 누르면 루프 종료
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-    
-
-# 자원 해제
+# 종료
 cap.release()
 cv2.destroyAllWindows()
-
