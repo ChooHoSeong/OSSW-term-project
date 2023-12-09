@@ -1,7 +1,7 @@
 # Motion Traking Mouse
 
 <div>
-   <video src="motion traking mouse - demo.mp4">
+   <video src="https://github.com/ChooHoSeong/OSSW-term-project/assets/94284939/ad0f078e-2933-400e-9a8a-1344c4ed0d81">
 </div>
 
 <br>
