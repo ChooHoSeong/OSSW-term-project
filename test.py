@@ -4,15 +4,29 @@ import time
 import mouse
 from screeninfo import get_monitors
 
-# 사용되는 컴의 해상도 가져오기
-myMonitor = get_monitors()[0]
-
 #해상도 매핑 합수
 def scale(x, input_range, output_range):
     D, A = input_range
     B, C = output_range
     y = (x - A) * (B - C) / (D - A) + C
     return y
+
+# 거리 계산 함수
+def calculate_distance(p1, p2):
+    return ((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2) ** 0.5
+
+# 삼각형의 넓이 계산 함수
+def calculate_triangle_area(p0, p5, p17):
+    # 헤론의 공식 사용
+    a = calculate_distance(p0, p5)
+    b = calculate_distance(p5, p17)
+    c = calculate_distance(p17, p0)
+    s = (a + b + c) / 2
+    return (s * (s - a) * (s - b) * (s - c)) ** 0.5
+
+
+# 사용되는 컴의 해상도 가져오기
+myMonitor = get_monitors()[0]
 
 # 마지막 손바닥 위치 초기화
 last_hand_position = (0, 0)
@@ -31,41 +45,27 @@ cap = cv2.VideoCapture(0)
 prev_frame_time = 0
 new_frame_time = 0
 
+# 디버깅 & 테스트 전용
+cam_display = True
+debug_print = True
 
-
-# 거리 계산 함수
-def calculate_distance(p1, p2):
-    return ((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2) ** 0.5
-
-# 삼각형의 넓이 계산 함수
-def calculate_triangle_area(p0, p5, p17):
-    # 헤론의 공식 사용
-    a = calculate_distance(p0, p5)
-    b = calculate_distance(p5, p17)
-    c = calculate_distance(p17, p0)
-    s = (a + b + c) / 2
-    return (s * (s - a) * (s - b) * (s - c)) ** 0.5
 
 while cap.isOpened():
-    ret, frame = cap.read()
+    new_frame_time = time.time()    # 새로운 프레임의 시간
+    ret, frame = cap.read()         # 캠 동작
     if not ret:
         continue
 
     # 프레임 크기 조정 및 좌우 반전
     frame = cv2.resize(frame, None, fx=0.5, fy=0.5)
     frame = cv2.flip(frame, 1)
-
-    # 새로운 프레임의 시간
-    new_frame_time = time.time()
+    h, w, c = frame.shape           # frame의 높이, 너비, 채널 저장
 
     # BGR에서 RGB로 변환
-    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    cvted = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     # 손 감지
-    results = hands.process(frame)
-
-    # 원래 BGR로 다시 변환
-    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    results = hands.process(cvted)
 
     # 감지된 손이 있으면 랜드마크 랜더링 및 마우스 커서 제어
     if results.multi_hand_landmarks:
@@ -74,24 +74,24 @@ while cap.isOpened():
             highlight_landmarks = [0, 4, 5, 8, 12, 16, 17, 20]
             landmark_positions = {}
             for id, lm in enumerate(hand_landmarks.landmark):
-                h, w, c = frame.shape
                 cx, cy = int(lm.x * w), int(lm.y * h)
                 landmark_positions[id] = (cx, cy)
-                if id in highlight_landmarks:
+                if (id in highlight_landmarks) and (cam_display is True):
                     cv2.circle(frame, (cx, cy), 5, (255, 0, 255), cv2.FILLED)
 
             # 손바닥 중심(삼각형 중점) 계산
             cx = (landmark_positions[0][0] + landmark_positions[5][0] + landmark_positions[17][0]) // 3
             cy = (landmark_positions[0][1] + landmark_positions[5][1] + landmark_positions[17][1]) // 3
-            cv2.circle(frame, (cx, cy), 5, (255, 0, 255), cv2.FILLED)
-            # 삼각형 그리기
-            cv2.line(frame, landmark_positions[0], landmark_positions[5], (255, 0, 0), 2)
-            cv2.line(frame, landmark_positions[5], landmark_positions[17], (255, 0, 0), 2)
-            cv2.line(frame, landmark_positions[17], landmark_positions[0], (255, 0, 0), 2)
-
-            # 인덱스 팁과 엄지 팁, 중지 팁과 엄지 팁 사이 선 그리기
-            cv2.line(frame, landmark_positions[8], landmark_positions[4], (0, 255, 0), 2)
-            cv2.line(frame, landmark_positions[12], landmark_positions[4], (0, 255, 0), 2)
+            if cam_display is True:
+                # 손바닥 중심 그리기
+                cv2.circle(frame, (cx, cy), 5, (255, 0, 255), cv2.FILLED)
+                # 삼각형 그리기
+                cv2.line(frame, landmark_positions[0], landmark_positions[5], (255, 0, 0), 2)
+                cv2.line(frame, landmark_positions[5], landmark_positions[17], (255, 0, 0), 2)
+                cv2.line(frame, landmark_positions[17], landmark_positions[0], (255, 0, 0), 2)
+                # 검지-엄지, 중지-엄지 사이 선 그리기
+                cv2.line(frame, landmark_positions[8], landmark_positions[4], (0, 255, 0), 2)
+                cv2.line(frame, landmark_positions[12], landmark_positions[4], (0, 255, 0), 2)
 
             # 손바닥 넓이 계산
             hand_area = calculate_triangle_area(landmark_positions[0], landmark_positions[5], landmark_positions[17])
@@ -102,7 +102,8 @@ while cap.isOpened():
                 # screen_w, screen_h = mouse.get_position()
                 # x = int(screen_w * (cx / w))
                 # y = int(screen_h * (cy / h))
-                print(cx,cy,myMonitor.width,myMonitor.height)
+                if debug_print is True:
+                    print(cx,cy,myMonitor.width,myMonitor.height)
                 cx = scale(cx, (100,850),(0,myMonitor.width))
                 cy = scale(cy, (100,450),(0,myMonitor.height))
                 # 손바닥의 중심 위치가 충분히 변했는지 확인
@@ -119,22 +120,28 @@ while cap.isOpened():
                 # 클릭 판단
                 if distance_index_thumb < 30:  # 인덱스 팁과 엄지 팁 사이 거리 임계값
                     mouse.click()
-                    print("L-clicked")
+                    if debug_print is True:
+                        print("L-clicked")
                 elif distance_middle_thumb < 30:  # 중지 팁과 엄지 팁 사이 거리 임계값
                     mouse.click(button='right')
-                    print("R-clicked")
+                    if debug_print is True:
+                        print("R-clicked")
 
-            else:
+            elif cam_display is True:
                 cv2.putText(frame, "error - shape of hand is strange", (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
     # FPS 계산 및 표시
     fps = 1 / (new_frame_time - prev_frame_time)
     prev_frame_time = new_frame_time
     fps_display = f"FPS: {int(fps)}"
-    cv2.putText(frame, fps_display, (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+    if cam_display is True:
+        cv2.putText(frame, fps_display, (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+    elif debug_print is True:
+        print(fps_display)
 
     # 결과 표시
-    cv2.imshow('Hand Tracking', frame)
+    if cam_display is True:
+        cv2.imshow('Hand Tracking', frame)
 
     # 'q' 키를 누르면 루프 종료
     if cv2.waitKey(1) & 0xFF == ord('q'):
