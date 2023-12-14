@@ -1,4 +1,4 @@
-# Motion Traking Mouse
+# Motion Capture Mouse
 
 <div>
    <video src="https://github.com/ChooHoSeong/OSSW-term-project/assets/94284939/ad0f078e-2933-400e-9a8a-1344c4ed0d81">
@@ -32,6 +32,9 @@ $ pip install -r requirments.txt
 
 # Quick Start
 
-### * Should install requirements before starting and prepare cam
+First, clone this repository in your computer.  
+Then, move to __'dist' dir__ and run __main.exe__
 
-Move to the root path of repo, and run __main.py__
+<br>
+
+# Reference
