@@ -34,7 +34,3 @@ $ pip install -r requirments.txt
 
 First, clone this repository in your computer.  
 Then, move to __'dist' dir__ and run __main.exe__
-
-<br>
-
-# Reference
